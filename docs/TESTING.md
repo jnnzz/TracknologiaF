@@ -4,6 +4,31 @@ Tracknologia prioritizes tests around business invariants and critical user flow
 
 ## Layers
 
+### SMTP configuration and delivery
+
+`src/lib/config/server.test.ts` covers Brevo settings with distinct login and
+sender addresses, missing/blank `EMAIL_FROM` rejection in every runtime, partial
+SMTP settings, and the existing disabled-email behavior. A configured SMTP
+transport always requires an explicit sender; no test or CI fixture may rely on
+the old fallback to `SMTP_USER`.
+
+`src/app/(provider)/dashboard/team/actions.production-no-email.test.ts` exercises
+the real configuration parser, Providers invitation command and mail client,
+with only the SMTP transport and persistence/auth boundaries faked. It checks
+Brevo sender selection, success/failure copy, one-time Copy Link, duplicate-send
+prevention and credential/token log redaction. Existing SMTP wire and stall
+tests continue to check TLS refusal, timeouts and Copy Link recovery using local
+socket servers. These tests do not contact Brevo.
+
+For live delivery, follow [Brevo email setup](SETUP.md#brevo-email-setup) and the
+pre-launch acceptance check in `SETUP.md`: test confirmation, password recovery
+and staff invitations with separate Gmail/Outlook mailboxes. Record the deployed
+SHA, date and pass/fail only. Check Brevo logs and actual inbox/spam placement;
+provider acceptance is not proof of receipt. Hosted Supabase SMTP and templates
+must be configured separately from the app. Keep real SMTP keys and live sends
+out of automated tests. Local Auth E2E uses Mailpit, not Brevo; never point its
+destructive fixtures at the hosted project.
+
 ### Module tests — Vitest
 
 Test feature interfaces directly without rendering UI where possible.

@@ -101,7 +101,7 @@ In `production` (when `APP_ENV=production` or `APP_ENV=staging`):
 
 - `NEXT_PUBLIC_APP_URL` must use `https://` and cannot use `localhost` or loopback IP addresses.
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are mandatory.
-- `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` are optional, but set all three or none: a partial set stops startup. With none, invitation email is disabled and invitations are shared with Copy Link.
+- `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` are optional, but set all three or none: a partial set stops startup. When SMTP is configured, `EMAIL_FROM` is also required and must identify your verified sender. It never falls back to the SMTP login. With no SMTP settings, invitation email is disabled and invitations are shared with Copy Link.
 - `PUBLIC_ABUSE_SHARED_DEV_BUCKET=true` and `NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=false` throw validation errors at startup via Next.js `instrumentation.ts`.
 
 `.env.local` must be ignored by Git.
@@ -122,7 +122,7 @@ Each environment needs these variables, scoped to that environment:
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SERVICE_ROLE_KEY` for that environment's Supabase project
 - `PUBLIC_ABUSE_HMAC_SECRET`: at least 32 random characters, unique to that environment
 - `PUBLIC_ABUSE_CLIENT_IP_SOURCE=vercel`: reads each visitor's IP from Vercel's `x-vercel-forwarded-for` header. It is a configuration check, not proof of origin. Set it only on Vercel-served deployments, never on a self-hosted or other host; see the trust limit in `docs/SECURITY.md`.
-- `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_USER` (the project Gmail address), `SMTP_PASSWORD` (the Google App Password from the steps below) and `EMAIL_FROM` (the sender, for example `Tracknologia <project@gmail.com>`; it defaults to `SMTP_USER`). `SMTP_PASSWORD` is a secret: never set it as `NEXT_PUBLIC_*`. Set `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` together or not at all. Leave all of them unset to keep invitations on Copy Link only.
+- `SMTP_HOST=smtp-relay.brevo.com`, `SMTP_PORT=587`, `SMTP_USER` (the Brevo SMTP login), `SMTP_PASSWORD` (a Brevo SMTP key) and `EMAIL_FROM` (for example `Tracknologia <your-verified-sender-address>`). `EMAIL_FROM` is required when SMTP is configured; the technical SMTP login is not a sender address. `SMTP_PASSWORD` is a secret: never set it as `NEXT_PUBLIC_*`. Leave the SMTP credentials unset to keep invitations on Copy Link only. See [Brevo email setup](#brevo-email-setup).
 
 Do not set `PUBLIC_ABUSE_TRUSTED_PROXY_SECRET`; this mode does not use it.
 Never set `PUBLIC_ABUSE_SHARED_DEV_BUCKET` or
@@ -139,25 +139,82 @@ Supabase project, and set `NEXT_PUBLIC_APP_URL` to the production URL. In the
 pilot project's Supabase Authentication → URL Configuration, set the Site URL
 to the production URL, and add `<app-url>/auth/callback` to the redirect URLs.
 
-The pilot has no domain. Invitation email is optional: while the SMTP variables
-are unset, the owner shares each invitation with Copy Link on the Team page.
-Set them as described above to send invitation email through the project Gmail.
+The pilot has no custom domain. The website can use its public Vercel deployment
+URL. Invitation email is optional: while the SMTP variables are unset, the owner
+shares each invitation with Copy Link on the Team page. Auth confirmation and
+recovery email must still pass the acceptance checks below.
 
-### Supabase Auth email via Gmail SMTP
+### Brevo email setup
 
-Supabase Auth sends sign-up confirmation and password reset emails. Send them
-through the pilot's project Gmail account. The app's invitation email uses the
-same Google App Password, as `SMTP_PASSWORD`. The Supabase setting is dashboard
-configuration only.
+Brevo delivers mail through the existing Nodemailer SMTP transport. No Brevo SDK,
+new API endpoint, database migration, or application-managed Auth tokens are
+needed. Other SMTP providers remain supported with an explicit `EMAIL_FROM`.
 
-1. Turn on 2-Step Verification for the project Gmail account, then create a Google App Password for it.
-2. In the Supabase dashboard, open Authentication → SMTP Settings and set:
-   - Host: `smtp.gmail.com`
-   - Port: `587`
-   - Username: the project Gmail address
-   - Password: the Google App Password, not the account password
-   - Sender email: the project Gmail address
-3. Gmail limits how many messages an account can send each day. That limit covers both Supabase Auth email and invitation email, so keep pilot volume within it. Google sets the limit and can change it.
+1. In Brevo, add a sender under Settings → Senders, Domains, IPs → Senders. Use
+   `Tracknologia` as its name and an address your team controls. Complete the
+   email verification code if requested. This does not require a Gmail App Password.
+2. Confirm transactional sending is activated. New accounts may need support
+   activation; a verified sender alone is not evidence that sending is enabled.
+   If Brevo requires domain authentication for this account, stop the no-domain
+   rollout until that requirement is resolved. Check the current account quota
+   before inviting participants.
+3. Under Settings → SMTP & API → SMTP, copy the SMTP login and generate an SMTP
+   key. Use the SMTP key, not a Brevo API key, account password, or Gmail password.
+   The SMTP login may end in `@smtp-brevo.com`; do not put it in `EMAIL_FROM`.
+4. Set the following in `.env.local` for app invitation testing and in the
+   appropriate Vercel environment for deployment. Replace every placeholder:
+
+   ```env
+   SMTP_HOST=smtp-relay.brevo.com
+   SMTP_PORT=587
+   SMTP_USER=<Brevo SMTP login>
+   SMTP_PASSWORD=<Brevo SMTP key>
+   EMAIL_FROM="Tracknologia <your-verified-sender-address>"
+   ```
+
+   Restart `pnpm dev` after editing local settings; redeploy after changing
+   hosting variables. Never commit credentials. If all SMTP credentials are
+   absent, local/test mode only logs recipient, sender and subject metadata and
+   simulates success; production sends nothing and returns Copy Link.
+
+5. Separately, in Supabase Authentication → SMTP Settings, enable Custom SMTP:
+
+   | Field        | Value                                               |
+   | ------------ | --------------------------------------------------- |
+   | Host         | `smtp-relay.brevo.com`                              |
+   | Port         | `587`                                               |
+   | Username     | The Brevo SMTP login                                |
+   | Password     | The Brevo SMTP key                                  |
+   | Sender email | The verified sender address, without a display name |
+   | Sender name  | `Tracknologia`                                      |
+
+   Supabase sends confirmation/recovery mail; the app sends staff invitations.
+   Configuring either one does not configure the other. Use separate keys for
+   the two senders when practical so they can be rotated independently.
+
+6. In Supabase Authentication → URL Configuration, set Site URL to the public app
+   URL and allow `<app-url>/auth/callback`. Set `NEXT_PUBLIC_APP_URL` to the same
+   origin. Keep Supabase's Confirm email setting enabled for the pilot and set
+   `NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=true` for deployed environments. The
+   app flag cannot change Supabase's confirmation setting. For a local manual
+   test, allow `http://localhost:3000/auth/callback` in the test project and use
+   `http://localhost:3000` as the app origin.
+7. Install/check the hosted Auth templates below, then run the delivery checks.
+   Retain the existing app invitation template and inline logo. Brevo only
+   transports these messages; no Brevo automation or template rebuild is needed.
+
+Without a custom domain, Brevo may allow an individually verified free-email
+sender but replaces the outgoing address with a Brevo-managed address. This is
+a temporary pilot arrangement, not a guarantee of account approval or inbox
+placement. Authenticate a team-owned domain when available. Do not use
+`onboarding@resend.dev` or an address you do not control as the Brevo sender.
+
+References: [SMTP setup](https://help.brevo.com/hc/en-us/articles/7924908994450-Send-transactional-emails-using-Brevo-SMTP),
+[sender verification](https://help.brevo.com/hc/en-us/articles/208836149-Create-a-new-sender-From-name-and-From-email),
+[activation troubleshooting](https://help.brevo.com/hc/en-us/articles/115000188150-Troubleshooting-Issues-with-Brevo-SMTP),
+and [free-sender address replacement](https://help.brevo.com/hc/en-us/articles/14925263522578-Comply-with-Gmail-Yahoo-and-Microsoft-s-requirements-for-email-senders).
+
+### Supabase Auth email templates
 
 Supabase Auth sends both sign-up confirmation and password recovery emails.
 Do not assume the application's SMTP settings or email templates configure it:
@@ -213,17 +270,18 @@ launch. The owner approved running the check here (#109, 2026-10-30).
    - **Throttle:** from one device, the 21st feedback submission within 10 minutes is throttled (default `PUBLIC_ABUSE_FEEDBACK_MAX=20`).
    - **Spoof:** repeat the throttle check with a browser header extension, such as ModHeader, adding forged `x-vercel-forwarded-for`, `x-forwarded-for`, `x-real-ip` and `x-tracknologia-client-ip` values. It must still throttle at the 21st submission.
    - **Isolation:** from a second device on a different network, such as a phone on mobile data, a submission still succeeds while the first device is throttled.
-4. Check hosted Auth email (Supabase Auth through the Gmail SMTP settings above):
+4. Check hosted Auth email (Supabase Auth through the Brevo SMTP settings above):
    - Confirm the Supabase custom SMTP settings are saved and enabled.
    - Sign up with a test address **not** on the Supabase organization team. Confirm the confirmation email arrives and its link opens the app.
    - Request a password reset for that address. Confirm the reset email arrives and its link works.
-   - Note the Supabase Auth email rate limit and Gmail's daily sending limit. If either blocks a flow, record that flow as failed.
+   - Note the Supabase Auth email rate limit and Brevo's current account quota. If either blocks a flow, record that flow as failed. Check the inbox, spam folder and Brevo transactional logs; SMTP acceptance alone does not prove inbox delivery.
    - **A failure is NO-GO for the pilot.** Do not fix it by turning off email confirmation in production; the app rejects `NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION=false` at startup.
-   - If Google offers no App Password for the project account (some Google Workspace policies block them), use another SMTP provider the owner has approved, then repeat this step.
+   - If Brevo rejects the sender or has not activated transactional sending, resolve that requirement with Brevo before launch. Do not bypass confirmation to work around the failure.
 5. Check app staff-invitation email. This uses the app's own `SMTP_*` settings, separate from Supabase Auth:
-   - If `SMTP_HOST`, `SMTP_USER` and `SMTP_PASSWORD` are set on Vercel for this deployment, a test Shop OWNER invites a **non-team** test mailbox from the Team page. Confirm the invitation email arrives and its link opens the registration page.
+   - If `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` and `EMAIL_FROM` are set on Vercel for this deployment, a test Shop OWNER invites a **non-team** test mailbox from the Team page. Confirm the invitation email arrives, uses the intended sender, and its link allows registration/onboarding with the invited email address.
    - If the SMTP settings are intentionally unset, do not claim email invitations work. Confirm the Team page shows "Invitation created" with a Copy Link button, and record that the pilot runs on Copy Link only.
    - If delivery fails, the invitation must still show its Copy Link. Record the failure, and do not advertise email invitations until this check passes.
+   - Repeat the three email flows with separate Gmail and Outlook test mailboxes. Verify real confirmation/recovery links, never `code=PREVIEW`, and confirm they use the deployed origin rather than `localhost`. Existing pending invitations are reused without another send: revoke and create a fresh invitation for a new delivery test.
 6. Record pass or fail for each check, including both hosted Auth flows and the app invitation check, the deployed SHA and the date only. Do not record IP
    addresses, tracking codes, message bodies, links or credentials.
 
