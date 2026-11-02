@@ -39,6 +39,7 @@ const PRODUCTION_ENV: Record<string, string> = {
   PUBLIC_ABUSE_HMAC_SECRET: "hmac_secret_stall_test_32_chars_minimum",
   PUBLIC_ABUSE_TRUSTED_PROXY_SECRET: "proxy_secret_stall_test_32_chars_min",
   NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION: "true",
+  EMAIL_FROM: "Tracknologia <project@gmail.com>",
 };
 
 const closers: Array<() => Promise<void>> = [];

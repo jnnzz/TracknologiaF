@@ -90,9 +90,10 @@ jobs:
         env:
           NEXT_PUBLIC_APP_URL: https://ci-build.invalid
           SUPABASE_SERVICE_ROLE_KEY: ci-build-only-service-role-placeholder
-          SMTP_HOST: smtp.gmail.com
+          SMTP_HOST: smtp-relay.brevo.com
           SMTP_USER: ci-build-only@ci-build.invalid
           SMTP_PASSWORD: smtp_ci_build_only_placeholder
+          EMAIL_FROM: Tracknologia <ci-build-only@ci-build.invalid>
         run: |
           pnpm build
           if [ -z "$(ls -A .next/static 2>/dev/null)" ]; then

@@ -14,6 +14,7 @@ const VALID_PROD_ENV: Record<string, string> = {
   SMTP_HOST: "smtp.gmail.com",
   SMTP_USER: "project@gmail.com",
   SMTP_PASSWORD: "app_password_1234567890",
+  EMAIL_FROM: "Tracknologia <project@gmail.com>",
   PUBLIC_ABUSE_HMAC_SECRET: "hmac_secret_32_chars_minimum_length_12345",
   PUBLIC_ABUSE_TRUSTED_PROXY_SECRET:
     "proxy_secret_32_chars_minimum_length_67890",
@@ -171,12 +172,38 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
 
     it("allows production without SMTP settings, with email disabled", () => {
       const config = parseServerConfig(
-        { ...VALID_PROD_ENV, SMTP_HOST: "", SMTP_USER: "", SMTP_PASSWORD: "" },
+        {
+          ...VALID_PROD_ENV,
+          SMTP_HOST: "",
+          SMTP_USER: "",
+          SMTP_PASSWORD: "",
+          EMAIL_FROM: "",
+        },
         "production",
       );
       expect(config.runtime).toBe("production");
       expect(config.email.smtp).toBeNull();
       expect(config.email.isDevLogger).toBe(false);
+      expect(config.email.from).toBe("");
+    });
+
+    it("accepts Brevo credentials with a sender distinct from the SMTP login", () => {
+      const config = parseServerConfig({
+        ...VALID_PROD_ENV,
+        SMTP_HOST: "smtp-relay.brevo.com",
+        SMTP_PORT: "587",
+        SMTP_USER: "12345@smtp-brevo.com",
+        SMTP_PASSWORD: "smtp_key_test_only",
+        EMAIL_FROM: "  Tracknologia <sender@example.test>  ",
+      });
+      expect(config.email.smtp).toEqual({
+        host: "smtp-relay.brevo.com",
+        port: 587,
+        secure: false,
+        user: "12345@smtp-brevo.com",
+        password: "smtp_key_test_only",
+      });
+      expect(config.email.from).toBe("Tracknologia <sender@example.test>");
     });
 
     it("enables email with the full SMTP set, on port 587 without implicit TLS", () => {
@@ -188,7 +215,7 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
         user: "project@gmail.com",
         password: "app_password_1234567890",
       });
-      expect(config.email.from).toBe("project@gmail.com");
+      expect(config.email.from).toBe("Tracknologia <project@gmail.com>");
     });
 
     it("uses implicit TLS only for port 465 and honours EMAIL_FROM", () => {
@@ -204,6 +231,27 @@ describe("Configuration Seam (src/lib/config/server.ts)", () => {
       expect(config.email.smtp?.secure).toBe(true);
       expect(config.email.from).toBe("Tracknologia <project@gmail.com>");
     });
+
+    it.each(["local", "test", "production"] as const)(
+      "requires an explicit sender for configured SMTP in %s without leaking credentials",
+      (runtime) => {
+        for (const sender of [undefined, "", " \t "]) {
+          expect(() =>
+            parseServerConfig({
+              ...VALID_PROD_ENV,
+              NODE_ENV: runtime === "local" ? "development" : runtime,
+              APP_ENV: runtime,
+              SMTP_HOST: "smtp-relay.brevo.com",
+              SMTP_USER: "12345@smtp-brevo.com",
+              SMTP_PASSWORD: "smtp_key_sender_test_secret",
+              EMAIL_FROM: sender,
+            }),
+          ).toThrow(
+            /^Configuration error: EMAIL_FROM must be set when SMTP is configured\.$/,
+          );
+        }
+      },
+    );
 
     it("rejects a partly set SMTP configuration in every runtime", () => {
       expect(() =>

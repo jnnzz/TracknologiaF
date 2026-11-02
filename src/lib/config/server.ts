@@ -186,7 +186,13 @@ export function parseServerConfig(
         password: smtpPassword,
       }
     : null;
-  const emailFrom = env.EMAIL_FROM?.trim() || smtpUser;
+  // SMTP logins can be technical identifiers rather than verified senders.
+  const emailFrom = env.EMAIL_FROM?.trim() || "";
+  if (smtpConfigured && !emailFrom) {
+    throw new Error(
+      "Configuration error: EMAIL_FROM must be set when SMTP is configured.",
+    );
+  }
   const isDevLogger = !smtp && (runtime === "local" || runtime === "test");
 
   // 4. Public-Abuse & Ingress Secrets

@@ -69,6 +69,7 @@ beforeEach(() => {
   process.env.SMTP_HOST = "smtp.gmail.com";
   process.env.SMTP_USER = "project@gmail.com";
   process.env.SMTP_PASSWORD = "smtp-production-test-password";
+  process.env.EMAIL_FROM = "Tracknologia <project@gmail.com>";
   process.env.PUBLIC_ABUSE_HMAC_SECRET = HMAC_SECRET;
   process.env.PUBLIC_ABUSE_TRUSTED_PROXY_SECRET = PROXY_SECRET;
   process.env.NEXT_PUBLIC_REQUIRE_EMAIL_CONFIRMATION = "true";
