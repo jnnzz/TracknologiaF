@@ -79,7 +79,7 @@ export async function registerProviderAccount(
       }
 
       throw new Error(
-        "Email delivery failed. If using Custom SMTP, verify your SMTP credentials (or Google App Password). To skip email verification in development, disable 'Confirm email' in Supabase -> Authentication -> Email.",
+        "Email delivery failed. If using Custom SMTP, verify the SMTP credentials and sender in Supabase Authentication settings. To skip email verification in development, disable 'Confirm email' in Supabase -> Authentication -> Email.",
       );
     }
 

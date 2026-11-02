@@ -44,6 +44,7 @@ const PRODUCTION_ENV: Record<string, string> = {
   SMTP_HOST: "",
   SMTP_USER: "",
   SMTP_PASSWORD: "",
+  EMAIL_FROM: "",
 };
 
 function inviteFormData(email: string) {
@@ -152,4 +153,72 @@ describe("inviteStaffAction in production without email", () => {
       .join(" ");
     expect(output).not.toContain(first.token ?? "");
   });
+});
+
+describe("inviteStaffAction with Brevo SMTP", () => {
+  it.each([true, false])(
+    "preserves the invitation and its one-time link when email delivery succeeds=%s",
+    async (delivered) => {
+      const spies = spyConsole();
+      vi.stubEnv("SMTP_HOST", "smtp-relay.brevo.com");
+      vi.stubEnv("SMTP_PORT", "587");
+      vi.stubEnv("SMTP_USER", "12345@smtp-brevo.com");
+      vi.stubEnv("SMTP_PASSWORD", "smtp_key_invite_test_only");
+      vi.stubEnv("EMAIL_FROM", "Tracknologia <sender@example.test>");
+      const sendMail = vi.fn();
+      if (delivered) {
+        sendMail.mockResolvedValue({ messageId: "<invite@example.test>" });
+      } else {
+        sendMail.mockRejectedValue(
+          Object.assign(new Error("smtp_key_invite_test_only"), {
+            code: "EAUTH",
+          }),
+        );
+      }
+      mocks.createTransport.mockReturnValue({ sendMail, close: vi.fn() });
+
+      const result = await inviteStaffAction(
+        null,
+        inviteFormData("tech@shop.com"),
+      );
+
+      expect(result.emailDeliveryFailed).toBe(!delivered);
+      expect(result.token).toMatch(/^inv_[0-9a-f]{48}$/);
+      expect(result.inviteUrl).toBe(`/register?invite=${result.token}`);
+      expect(result.success).toContain(
+        delivered ? "Invitation sent" : "email was not sent",
+      );
+      expect(mocks.createTransport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: "smtp-relay.brevo.com",
+          port: 587,
+          requireTLS: true,
+          auth: {
+            user: "12345@smtp-brevo.com",
+            pass: "smtp_key_invite_test_only",
+          },
+        }),
+      );
+      expect(sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from: "Tracknologia <sender@example.test>",
+          to: "tech@shop.com",
+          text: expect.stringContaining(result.token!),
+        }),
+      );
+      const repeated = await inviteStaffAction(
+        null,
+        inviteFormData("tech@shop.com"),
+      );
+      expect(repeated.reused).toBe(true);
+      expect(repeated.token).toBeUndefined();
+      expect(sendMail).toHaveBeenCalledTimes(1);
+      const logged = spies
+        .flatMap((spy) => spy.mock.calls)
+        .flat()
+        .join(" ");
+      expect(logged).not.toContain("smtp_key_invite_test_only");
+      expect(logged).not.toContain(result.token!);
+    },
+  );
 });

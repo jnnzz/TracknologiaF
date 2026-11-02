@@ -48,7 +48,7 @@ export async function sendEmail(
   }
 
   // Port 465 is implicit TLS. Every other port must upgrade with STARTTLS
-  // before AUTH, so the App Password never crosses an unencrypted connection.
+  // before AUTH, so SMTP credentials never cross an unencrypted connection.
   const transport = createTransport({
     host: smtp.host,
     port: smtp.port,
